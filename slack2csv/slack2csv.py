@@ -86,11 +86,78 @@ def fetch_from_slack(token, channel, oldest):
                 str(datetime.fromtimestamp(float(newest)))))
 
 
+class CSVWriter(object):
+    def __init__(self, args):
+        self.args = args
+
+        # open a file for writing
+        self.csv_file = open(args.filename, 'w')
+
+        # create the csv writer object
+        self.csvwriter = csv.writer(self.csv_file)
+
+        self.count = 0
+        self.last_timestamp = 0
+        self.header = []
+
+
+    def write_record(self, msg):
+        try:
+            msgText = msg.get('text')
+        except:
+            raise
+
+        if msg.get('subtype') != 'bot_message':
+            msgUser = msg.get('user')
+
+            if 'subtype' in msg:
+                del msg['subtype']
+
+            if msgUser != None and msgText.find(self.args.text) == 0:
+
+                # Write the header if first row
+                if self.count == 0:
+                    self.header = sorted(msg.keys())
+
+                    self.csvwriter.writerow(header)
+
+                    self.count += 1
+
+                self.last_timestamp = datetime.fromtimestamp(
+                    float(msg.get('ts')))
+
+                # write the csv row
+                row = [msg.get(k) for k in self.header]
+                self.csvwriter.writerow(row)
+
+    def close(self):
+        self.csv_file.close()
+
+class JSONWriter(object):
+    def __init__(self, args):
+        self.args = args
+        self.fh = open(args.filename, "w")
+
+    def write_record(self, msg):
+        msgText = msg.get('text')
+
+        if msg.get('subtype') != 'bot_message':
+            msgUser = msg.get('user')
+
+            if msgUser != None and msgText.find(self.args.text) == 0:
+                json.dump(msg, self.fh)
+
+    def close(self):
+        self.fh.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description='slack2csv')
     parser.add_argument('--text', help='text to search for', default='')
     parser.add_argument(
         '--past_days', help='days to go back', default='1')
+    parser.add_argument("--json", action="store_true",
+                        help="output json instead of csv")
     requiredNamed = parser.add_argument_group('required named arguments')
     requiredNamed.add_argument(
         '--token', help='Slack API token', required=True)
@@ -138,48 +205,15 @@ def main():
                              timedelta(days=int(args.past_days))).timetuple())
 
     # open a file for writing
-
-    csv_file = open(args.filename, 'w')
-
-    # create the csv writer object
-
-    csvwriter = csv.writer(csv_file)
-
-    count = 0
-    last_timestamp = 0
-    header = []
+    if args.json:
+        writer = JSONWriter(args)
+    else:
+        writer = CSVWriter(args)
 
     for msg in fetch_from_slack(args.token, conversation_id, time_diff):
+        writer.write_record(msg)
 
-        try:
-            msgText = msg.get('text')
-        except:
-            raise
-
-        if msg.get('subtype') != 'bot_message':
-            msgUser = msg.get('user')
-
-            if 'subtype' in msg:
-                del msg['subtype']
-
-            if msgUser != None and msgText.find(args.text) == 0:
-
-                # Write the header if first row
-                if count == 0:
-                    header = sorted(msg.keys())
-
-                    csvwriter.writerow(header)
-
-                    count += 1
-
-                last_timestamp = datetime.fromtimestamp(
-                    float(msg.get('ts')))
-
-                # write the csv row
-                row = [msg.get(k) for k in header]
-                csvwriter.writerow(row)
-
-    csv_file.close()
+    writer.close()
 
 
 if __name__ == "__main__":
